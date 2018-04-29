@@ -1,10 +1,4 @@
 defmodule GS.DemandHandling.Producer do
-  defmodule State do
-    @type t :: %__MODULE__{events: list()}
-
-    defstruct [events: []]
-  end
-
   use GenStage
 
   require Logger
@@ -12,17 +6,18 @@ defmodule GS.DemandHandling.Producer do
   alias GS.ConsumersSupervisor
 
   @buffer_size 8 # default is 10_000
-  @consumers_count 2
+  @consumers_count 1
 
   def start_link do
     GenStage.start_link(__MODULE__, :ok, name: __MODULE__)
   end
 
   def init(:ok) do
+    state = %{events: [], demand: 0}
+
     send(self(), :init)
 
-    {:producer, %State{events: []}, buffer_size: @buffer_size}
-    # {:producer, %State{events: fetch_events(@buffer_size)}, buffer_size: @buffer_size}
+    {:producer, state, buffer_size: @buffer_size}
   end
 
   def handle_info(:init, state) do
@@ -30,30 +25,49 @@ defmodule GS.DemandHandling.Producer do
       ConsumersSupervisor.start_consumer(GS.DemandHandling.Consumer)
     end)
 
-    {:noreply, [:sadf], state}
+    {:noreply, [], state}
   end
   def handle_info(_, state), do: {:noreply, [], state}
 
-  def handle_demand(demand, %State{events: events} = state)
-      when demand <= length(events)
+  def handle_demand(incoming_demand, %{demand: demand} = state) do
+    new_state = Map.put(state, :demand, demand + incoming_demand)
+
+    dispatch_events(new_state)
+  end
+
+  defp dispatch_events(%{events: events, demand: demand} = state)
+       when length(events) >= demand
   do
-    dispatch_events(events, demand, state)
-  end
-  def handle_demand(demand, %State{events: events} = state) do
-    events = fetch_events(demand) ++ events
-
-    dispatch_events(events, demand, state)
-  end
-
-  defp fetch_events(count), do: List.duplicate(:event, count)
-
-  defp dispatch_events(events, demand, state) do
+    Logger.info("#{length(events)} events in the buffer")
     Logger.info("demand of #{demand} received")
 
-    {to_dispatch, remaining} = Enum.split(events, demand)
+    {events_to_dispatch, remaining_events} = Enum.split(events, demand)
 
-    Logger.info("#{length(to_dispatch)} events were prepared")
+    Logger.info("#{length(events_to_dispatch)} events were prepared")
 
-    {:noreply, to_dispatch, Map.put(state, :events, remaining)}
+    new_state =
+      state
+      |> Map.put(:demand, 0)
+      |> Map.put(:events, remaining_events)
+
+    {:noreply, events_to_dispatch, new_state}
+  end
+  defp dispatch_events(%{events: events, demand: demand} = state)
+       when length(events) < demand
+  do
+    events = events ++ fetch_events(demand)
+
+    state
+    |> Map.put(:demand, demand)
+    |> Map.put(:events, events)
+    |> dispatch_events()
+  end
+
+  defp fetch_events(demand) do
+    events = List.duplicate("this is my event", demand)
+
+    Logger.info("#{length(events)} events were fetched")
+
+    events
   end
 end

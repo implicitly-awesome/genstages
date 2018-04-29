@@ -9,7 +9,7 @@ defmodule GS.DemandHandling.Consumer do
 
   require Logger
 
-  # @min_demand 2 # default is 500
+  @min_demand 1 # default is 500
   @max_demand 4 # default is 1000
 
   def start_link, do: start_link([])
@@ -21,7 +21,7 @@ defmodule GS.DemandHandling.Consumer do
     GenStage.async_subscribe(
       self(),
       to: state.producer,
-      # min_demand: @min_demand,
+      min_demand: @min_demand,
       max_demand: @max_demand
     )
 
@@ -29,10 +29,10 @@ defmodule GS.DemandHandling.Consumer do
   end
 
   def handle_subscribe(:producer, _opts, from, state) do
-    send(self(), :init_ask)
+    # send(self(), :init_ask)
 
-    {:manual, Map.put(state, :subscription, from)}
-    # {:automatic, Map.put(state, :subscription, from)}
+    # {:manual, Map.put(state, :subscription, from)}
+    {:automatic, Map.put(state, :subscription, from)}
   end
 
   def handle_info(:init_ask, %State{subscription: subscription} = state) do
@@ -51,7 +51,7 @@ defmodule GS.DemandHandling.Consumer do
       Logger.info("#{inspect(self())} handled an event")
     end)
 
-    GenStage.ask(subscription, @max_demand)
+    # GenStage.ask(subscription, @max_demand)
 
     {:noreply, [], state}
   end
